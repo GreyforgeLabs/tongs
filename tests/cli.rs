@@ -495,10 +495,20 @@ fn non_utf8_arguments_are_reported_like_python() {
     let (code, _, err) = run([path.as_os_str().to_owned(), raw(b"bog\xfe")]);
     assert_eq!(code, EXIT_USAGE);
     assert!(err.ends_with("invalid choice: 'bog\\udcfe' (choose from 'init', 'info', 'dump', 'get', 'set', 'delete')\n"));
-    // A valid UTF-8 name that contains U+10FFFF is not mistaken for an escape.
-    let odd = dir.path().join("x\u{10ffff}.json");
-    assert_eq!(run([p(&odd), "set", "k", "v"]).0, 0);
-    assert!(odd.exists());
+    // A valid UTF-8 argument that contains U+10FFFF is not mistaken for an escape.
+    let (code, _, err) = run([p(&path), "set", "q\u{10ffff}", "v"]);
+    assert_eq!((code, err.as_str()), (0, ""));
+    let (code, out, _) = run([p(&path), "get", "q\u{10ffff}"]);
+    assert_eq!(code, 0);
+    assert!(out.contains('v'), "{out}");
+    // The same for a file name, where the filesystem allows one: APFS refuses
+    // names with unassigned code points such as U+10FFFF (EILSEQ).
+    #[cfg(not(target_os = "macos"))]
+    {
+        let odd = dir.path().join("x\u{10ffff}.json");
+        assert_eq!(run([p(&odd), "set", "k", "v"]).0, 0);
+        assert!(odd.exists());
+    }
 }
 
 #[test]
