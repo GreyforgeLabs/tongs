@@ -34,8 +34,8 @@ body:
       description: OS, language version, tool version, etc.
       placeholder: |
         - OS: Ubuntu 24.04
-        - Python: 3.12
-        - Tool version: v1.0.0
+        - Rust: 1.88
+        - Tool version: v2.0.0
     validations:
       required: false
 

@@ -10,40 +10,44 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-        with:
-          python-version: "3.12"
-      - name: Validate tag matches project version
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Validate tag matches Cargo version
+        shell: bash
         run: |
           set -euo pipefail
-
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          PROJECT_VERSION="$(python - <<'PY'
-          import tomllib
-          with open("pyproject.toml", "rb") as handle:
-              data = tomllib.load(handle)
-          print(data["project"]["version"])
-          PY
-          )"
-
-          if [ "$TAG_VERSION" != "$PROJECT_VERSION" ]; then
-            echo "Tag version $TAG_VERSION does not match project.version $PROJECT_VERSION"
+          CRATE_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [ "$TAG_VERSION" != "$CRATE_VERSION" ]; then
+            echo "Tag version $TAG_VERSION does not match Cargo.toml version $CRATE_VERSION"
             exit 1
           fi
-      - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e ".[dev]"
-      - run: python -m ruff check .
-      - run: python -m pytest
-      - run: python -m build
-      - run: python -m twine check dist/*
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+      - name: Package binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="tongs-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "dist/$NAME"
+          # tongs plus the deprecated atomic-json-store alias (one release).
+          cp target/release/tongs target/release/atomic-json-store README.md LICENSE CHANGELOG.md "dist/$NAME/"
+          tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+          rm -rf "dist/$NAME"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: dist
-          path: dist/*
+          name: dist-${{ matrix.target }}
+          path: dist/*.tar.gz
 
   github-release:
     needs: build
@@ -54,7 +58,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: dist
+          pattern: dist-*
+          merge-multiple: true
           path: dist
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:

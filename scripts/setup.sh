@@ -1,45 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# atomic-json-store setup script
+# tongs setup script
 # Idempotent - safe to run multiple times
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-echo "=== atomic-json-store Setup ==="
+echo "=== tongs Setup ==="
 
 check_command() {
-    if ! command -v "$1" &> /dev/null; then
-        echo "ERROR: $1 is required but not installed."
+    if ! command -v "$1" >/dev/null 2>&1; then
+        echo "ERROR: $1 is required but not installed (see https://rustup.rs)."
         exit 1
     fi
 }
 
-check_command python3
+check_command cargo
+check_command rustc
 
-PYTHON_OK="$(python3 -c 'import sys; print(int(sys.version_info >= (3, 11)))')"
-if [ "$PYTHON_OK" != "1" ]; then
-    echo "ERROR: Python 3.11 or newer is required (found $(python3 --version))."
+if ! cargo fmt --version >/dev/null 2>&1; then
+    echo "ERROR: rustfmt is required. Install it with: rustup component add rustfmt"
     exit 1
 fi
 
 cd "$PROJECT_DIR"
 
-if [ ! -d .venv ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv .venv
-fi
+echo "Building..."
+cargo build --locked
 
-# shellcheck disable=SC1091
-source .venv/bin/activate
-
-python -m pip install --quiet --upgrade pip
-python -m pip install --quiet -e ".[dev]"
+echo "Running tests..."
+cargo test --locked
 
 echo "=== Setup complete ==="
 
 echo "Running verification..."
-atomic-json-store --version
-python -m pytest -q
-echo "OK: atomic-json-store is installed in .venv and the test suite passes."
+cargo run --quiet --locked -- --version
+echo "OK: tongs builds and the test suite passes."
+echo "Install the CLI with: cargo install --locked --path ."

@@ -4,7 +4,8 @@
 # Explicit text files
 *.md text diff=markdown
 *.txt text
-*.py text diff=python
+*.rs text diff=rust
+*.toml text
 *.js text diff=javascript
 *.ts text diff=javascript
 *.json text
@@ -17,4 +18,5 @@
 *.jpg binary
 *.gif binary
 *.ico binary
+*.webp binary
 *.woff2 binary

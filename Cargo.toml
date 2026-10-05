@@ -1,0 +1,47 @@
+[package]
+name = "tongs"
+version = "2.0.0"
+edition = "2024"
+description = "Atomic, cross-process locked, schema-versioned JSON persistence (library and CLI)"
+license = "AGPL-3.0-only"
+repository = "https://github.com/GreyforgeLabs/tongs"
+homepage = "https://greyforge.tech"
+readme = "README.md"
+keywords = ["json", "atomic", "file-lock", "schema-migration", "persistence"]
+categories = ["command-line-utilities", "filesystem", "database"]
+rust-version = "1.88"
+default-run = "tongs"
+exclude = ["/.github", "/docs/assets", "/scripts"]
+
+[lib]
+name = "tongs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "tongs"
+path = "src/main.rs"
+
+# Deprecated alias for the former name. It prints a one-line deprecation note
+# to stderr and then behaves exactly like `tongs`. Remove in the release after
+# 2.0.0.
+[[bin]]
+name = "atomic-json-store"
+path = "src/bin/atomic-json-store.rs"
+
+[dependencies]
+libc = "=0.2.189"
+serde = { version = "=1.0.228", default-features = false, features = ["std"] }
+serde_json = { version = "=1.0.149", features = ["preserve_order", "arbitrary_precision"] }
+zmij = "=1.0.23"
+
+[dev-dependencies]
+assert_cmd = "=2.2.0"
+predicates = "=3.1.4"
+tempfile = "=3.27.0"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

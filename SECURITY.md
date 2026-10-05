@@ -4,7 +4,8 @@
 
 | Version | Supported |
 |---------|-----------|
-| latest  | Yes       |
+| 2.0.x (Rust, latest) | Yes |
+| 1.0.x (Python) | No |
 
 ## Reporting a Vulnerability
 

@@ -1,18 +1,18 @@
-# Contributing to atomic-json-store
+# Contributing to tongs
 
 Thanks for your interest in contributing. This guide covers the process for submitting changes.
 
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/atomic-json-store.git`
-3. Run setup: `cd atomic-json-store && ./scripts/setup.sh`
+2. Clone your fork: `git clone https://github.com/YOUR_USERNAME/tongs.git`
+3. Run setup: `cd tongs && ./scripts/setup.sh`
 4. Create a branch: `git checkout -b your-feature`
 
 ## Development Workflow
 
 1. Make your changes
-2. Run tests to verify nothing is broken
+2. Run `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` and `cargo test --locked`
 3. Commit with clear, descriptive messages (prefer `feat:`, `fix:`, `docs:` prefixes)
 4. Push to your fork and open a Pull Request
 
@@ -36,8 +36,9 @@ chore: update dependencies
 
 ## Code Standards
 
-- Follow the existing code style in the repository
+- Follow the existing code style in the repository (`cargo fmt`)
 - Write tests for new functionality
+- Keep the on-disk format (including the `"atomic-json-store/1"` envelope marker), JSON formatting and lock protocol compatible with the Python 1.x implementation (released as `atomic-json-store`); run `tests/differential.rs` against a v1.0.1 checkout when touching them (see STARTHERE.md)
 - Update documentation for user-facing changes
 - No secrets, credentials, or internal paths in your code
 

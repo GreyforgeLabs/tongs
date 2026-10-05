@@ -7,21 +7,15 @@
 credentials/
 secrets/
 
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-*.egg-info/
+# Release packaging (.github/workflows/release.yml)
 dist/
-build/
 
 # Node.js
 node_modules/
 npm-debug.log*
 
 # Rust
-target/
+/target
 
 # IDE
 .vscode/
@@ -42,5 +36,3 @@ Thumbs.db
 # Store sidecars from local experiments
 *.json.lock
 *.corrupt-*
-.ruff_cache/
-.pytest_cache/
