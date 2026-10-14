@@ -12,11 +12,12 @@
 //! Both the reader and the writer are iterative, so deeply nested documents
 //! cannot overflow the stack.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use serde_json::{Map, Number, Value};
 
-use crate::python::float_repr;
+use crate::python::push_float_repr;
 
 /// A decoding failure, formatted like CPython's `JSONDecodeError` /
 /// `UnicodeDecodeError` messages.
@@ -170,9 +171,9 @@ const SURROGATE_STANDIN: char = '\u{fffd}';
 
 /// Decoded text plus the byte offset (in the text) of the first lone
 /// surrogate, if any.
-type Decoded = (String, Option<usize>);
+type Decoded<'a> = (Cow<'a, str>, Option<usize>);
 
-fn decode_bytes(b: &[u8]) -> Result<Decoded, JsonError> {
+fn decode_bytes(b: &[u8]) -> Result<Decoded<'_>, JsonError> {
     match detect_encoding(b) {
         "utf-8" => decode_utf8(b),
         // CPython's utf-8-sig decoder reports errors as 'utf-8', with
@@ -189,7 +190,11 @@ fn decode_bytes(b: &[u8]) -> Result<Decoded, JsonError> {
 
 /// UTF-8 with CPython's `surrogatepass`: `ED A0..BF 80..BF` decodes to a lone
 /// surrogate instead of failing.
-fn decode_utf8(b: &[u8]) -> Result<Decoded, JsonError> {
+fn decode_utf8(b: &[u8]) -> Result<Decoded<'_>, JsonError> {
+    // The common case: valid UTF-8 is parsed in place, without a copy.
+    if let Ok(text) = std::str::from_utf8(b) {
+        return Ok((Cow::Borrowed(text), None));
+    }
     let mut out = String::with_capacity(b.len());
     let mut surrogate = None;
     let mut i = 0;
@@ -216,7 +221,7 @@ fn decode_utf8(b: &[u8]) -> Result<Decoded, JsonError> {
             }
         }
     }
-    Ok((out, surrogate))
+    Ok((Cow::Owned(out), surrogate))
 }
 
 fn utf8_error(b: &[u8], start: usize, error_len: Option<usize>) -> JsonError {
@@ -252,7 +257,7 @@ fn codec_error(codec: &str, b: &[u8], start: usize, end: usize, reason: &str) ->
 /// UTF-16 from byte `skip` on (after any BOM), with `surrogatepass`.
 /// Positions in errors count from the start of the input, BOM included, and
 /// the codec is named with its byte order, as CPython does.
-fn decode_utf16(b: &[u8], skip: usize, big: bool) -> Result<Decoded, JsonError> {
+fn decode_utf16(b: &[u8], skip: usize, big: bool) -> Result<Decoded<'static>, JsonError> {
     let codec = if big { "utf-16-be" } else { "utf-16-le" };
     let unit = |i: usize| {
         let pair = [b[i], b[i + 1]];
@@ -288,11 +293,11 @@ fn decode_utf16(b: &[u8], skip: usize, big: bool) -> Result<Decoded, JsonError> 
     if i < b.len() {
         return Err(codec_error(codec, b, i, i + 1, "truncated data"));
     }
-    Ok((out, surrogate))
+    Ok((Cow::Owned(out), surrogate))
 }
 
 /// UTF-32 from byte `skip` on, with `surrogatepass` (see [`decode_utf16`]).
-fn decode_utf32(b: &[u8], skip: usize, big: bool) -> Result<Decoded, JsonError> {
+fn decode_utf32(b: &[u8], skip: usize, big: bool) -> Result<Decoded<'static>, JsonError> {
     let codec = if big { "utf-32-be" } else { "utf-32-le" };
     let mut out = String::with_capacity(b.len() / 4);
     let mut surrogate = None;
@@ -325,7 +330,7 @@ fn decode_utf32(b: &[u8], skip: usize, big: bool) -> Result<Decoded, JsonError> 
     if i < b.len() {
         return Err(codec_error(codec, b, i, b.len(), "truncated data"));
     }
-    Ok((out, surrogate))
+    Ok((Cow::Owned(out), surrogate))
 }
 
 /// Deepest container nesting accepted. The parser and serialiser are
@@ -707,14 +712,20 @@ impl<'a> Parser<'a> {
 /// The JSON text CPython's encoder writes for a float (`NaN`, `Infinity`,
 /// `-Infinity` for non-finite values, `repr()` otherwise).
 pub fn float_json_text(x: f64) -> String {
+    let mut out = String::with_capacity(24);
+    push_float_json_text(&mut out, x);
+    out
+}
+
+fn push_float_json_text(out: &mut String, x: f64) {
     if x.is_nan() {
-        "NaN".to_owned()
+        out.push_str("NaN");
     } else if x == f64::INFINITY {
-        "Infinity".to_owned()
+        out.push_str("Infinity");
     } else if x == f64::NEG_INFINITY {
-        "-Infinity".to_owned()
+        out.push_str("-Infinity");
     } else {
-        float_repr(x)
+        push_float_repr(out, x);
     }
 }
 
@@ -752,12 +763,10 @@ impl DumpOptions {
 }
 
 fn write_number(out: &mut String, n: &Number) {
-    let text = n.to_string();
-    match text.as_str() {
-        "NaN" | "Infinity" | "-Infinity" => out.push_str(&text),
+    match n.as_str() {
+        text @ ("NaN" | "Infinity" | "-Infinity") => out.push_str(text),
         t if t.contains(['.', 'e', 'E']) => {
-            let x: f64 = t.parse().unwrap_or(f64::NAN);
-            out.push_str(&float_json_text(x));
+            push_float_json_text(out, t.parse().unwrap_or(f64::NAN));
         }
         "-0" => out.push('0'),
         t => out.push_str(t),
@@ -765,8 +774,19 @@ fn write_number(out: &mut String, n: &Number) {
 }
 
 fn write_string(out: &mut String, s: &str, ensure_ascii: bool) {
+    use fmt::Write as _;
+    let special = |b: u8| b == b'"' || b == b'\\' || b < 0x20 || (ensure_ascii && b > 0x7e);
     out.push('"');
-    for c in s.chars() {
+    let mut rest = s;
+    // Copy each run that needs no escaping in one go. `special` only stops at
+    // ASCII bytes or (with `ensure_ascii`) at the lead byte of a non-ASCII
+    // character, so every split is on a character boundary.
+    while let Some(i) = rest.bytes().position(special) {
+        out.push_str(&rest[..i]);
+        let Some(c) = rest[i..].chars().next() else {
+            break;
+        };
+        rest = &rest[i + c.len_utf8()..];
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
@@ -775,21 +795,23 @@ fn write_string(out: &mut String, s: &str, ensure_ascii: bool) {
             '\t' => out.push_str("\\t"),
             '\u{8}' => out.push_str("\\b"),
             '\u{c}' => out.push_str("\\f"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c if !ensure_ascii || (' '..='~').contains(&c) => out.push(c),
             c => {
                 let mut buf = [0u16; 2];
                 for unit in c.encode_utf16(&mut buf) {
-                    out.push_str(&format!("\\u{:04x}", unit));
+                    let _ = write!(out, "\\u{unit:04x}");
                 }
             }
         }
     }
+    out.push_str(rest);
     out.push('"');
 }
 
 enum Level<'v> {
     Array(std::slice::Iter<'v, Value>),
+    /// An object in insertion order, walked in place.
+    Map(serde_json::map::Iter<'v>),
+    /// An object whose entries had to be collected (sorted keys, envelope).
     Object(std::vec::IntoIter<(&'v str, &'v Value)>),
 }
 
@@ -858,8 +880,12 @@ fn dump_into<'v>(
                 }
                 Value::Object(map) => {
                     out.push('{');
-                    let entries = map.iter().map(|(k, v)| (k.as_str(), v)).collect();
-                    stack.push((object_level(entries, opts), true));
+                    let level = if opts.sort_keys {
+                        object_level(map.iter().map(|(k, v)| (k.as_str(), v)).collect(), opts)
+                    } else {
+                        Level::Map(map.iter())
+                    };
+                    stack.push((level, true));
                 }
             }
         }
@@ -869,6 +895,7 @@ fn dump_into<'v>(
         };
         let next = match level {
             Level::Array(it) => it.next().map(|v| (None, v)),
+            Level::Map(it) => it.next().map(|(k, v)| (Some(k.as_str()), v)),
             Level::Object(it) => it.next().map(|(k, v)| (Some(k), v)),
         };
         match next {
@@ -887,7 +914,7 @@ fn dump_into<'v>(
             None => {
                 let closing = match level {
                     Level::Array(_) => ']',
-                    Level::Object(_) => '}',
+                    Level::Map(_) | Level::Object(_) => '}',
                 };
                 stack.pop();
                 newline(out, depth - 1);
@@ -923,7 +950,7 @@ pub(crate) fn normalize_numbers_for_serde(value: &mut Value) {
     while let Some(v) = stack.pop() {
         match v {
             Value::Number(n) => {
-                let text = n.to_string();
+                let text = n.as_str();
                 if text.contains(['.', 'e', 'E']) || text.ends_with("Infinity") || text == "NaN" {
                     let x: f64 = text.parse().unwrap_or(f64::NAN);
                     *v = Number::from_f64(x).map_or(Value::Null, Value::Number);

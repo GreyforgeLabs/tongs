@@ -46,7 +46,7 @@ Use the library from another Cargo project:
 
 ```toml
 [dependencies]
-tongs = { git = "https://github.com/GreyforgeLabs/tongs", tag = "v2.0.0" }
+tongs = { git = "https://github.com/GreyforgeLabs/tongs", tag = "v2.0.1" }
 ```
 
 ## Features
@@ -146,11 +146,11 @@ With `Quarantine`, an unreadable file is renamed to `state.json.corrupt-<timesta
 | `schema_version(u64)` | `1` | Version this program expects |
 | `migration(from, f)` | none | Upgrade step from `from` to `from + 1` |
 | `default_value(v)` / `default_with(f)` | `{}` | Document used when the file does not exist |
-| `lock_timeout(Option<Duration>)` / `lock_timeout_secs(Option<f64>)` | `10 s` | Time to wait for the lock; `None` waits forever; zero fails fast |
+| `lock_timeout(Option<Duration>)` / `lock_timeout_secs(Option<f64>)` | `10 s` | Time to wait for the lock; `None` waits forever (blocking in the kernel, so it wakes as soon as the lock is free); zero fails fast |
 | `indent(Option<usize>)` / `indent_str(Option<&str>)` | `Some(2)` | JSON indentation (`None` for one line) |
 | `sort_keys(bool)` | `false` | Sort object keys on disk |
 | `ensure_ascii(bool)` | `false` | Escape non-ASCII characters |
-| `fsync(bool)` | `true` | fsync the file and its directory on every write |
+| `fsync(bool)` | `true` | fsync the file and its directory on every write (and the parent of any directory the store creates) |
 | `on_corrupt(CorruptPolicy)` | `Raise` | `Raise` or `Quarantine` |
 | `file_mode(Option<u32>)` | `None` | Mode for the file; `None` keeps the existing mode or uses `0600` |
 

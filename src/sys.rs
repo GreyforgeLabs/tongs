@@ -18,16 +18,19 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::error::{Error, Result};
 use crate::python::path_parent;
 
-/// Try to take a non-blocking `flock` (`LOCK_SH` or `LOCK_EX`). Returns
-/// `Ok(false)` when the lock is held elsewhere, matching the Python
-/// implementation, which treated `BlockingIOError` and `PermissionError` as
-/// "busy".
-pub(crate) fn try_flock(file: &File, exclusive: bool) -> io::Result<bool> {
-    let op = if exclusive {
+/// Take a `flock` (`LOCK_SH` or `LOCK_EX`). With `wait` the call blocks
+/// until the lock is granted; otherwise it returns `Ok(false)` when the lock
+/// is held elsewhere, matching the Python implementation, which treated
+/// `BlockingIOError` and `PermissionError` as "busy".
+pub(crate) fn flock(file: &File, exclusive: bool, wait: bool) -> io::Result<bool> {
+    let mut op = if exclusive {
         libc::LOCK_EX
     } else {
         libc::LOCK_SH
-    } | libc::LOCK_NB;
+    };
+    if !wait {
+        op |= libc::LOCK_NB;
+    }
     loop {
         // SAFETY: `file` owns a valid open descriptor for the duration of the
         // call; flock does not touch memory.
@@ -39,12 +42,13 @@ pub(crate) fn try_flock(file: &File, exclusive: bool) -> io::Result<bool> {
         match err.raw_os_error() {
             Some(libc::EINTR) => continue,
             Some(code)
-                if code == libc::EWOULDBLOCK
-                    || code == libc::EAGAIN
-                    || code == libc::EALREADY
-                    || code == libc::EINPROGRESS
-                    || code == libc::EACCES
-                    || code == libc::EPERM =>
+                if !wait
+                    && (code == libc::EWOULDBLOCK
+                        || code == libc::EAGAIN
+                        || code == libc::EALREADY
+                        || code == libc::EINPROGRESS
+                        || code == libc::EACCES
+                        || code == libc::EPERM) =>
             {
                 return Ok(false);
             }
@@ -63,33 +67,41 @@ pub(crate) fn unflock(file: &File) {
 }
 
 /// `Path.mkdir(parents=True, exist_ok=True)` with the same recursion and the
-/// same failing-path reporting as CPython's pathlib.
-pub(crate) fn mkdir_p(path: &Path) -> Result<()> {
+/// same failing-path reporting as CPython's pathlib. With `sync`, the parent
+/// of every directory created here is fsynced, so the new entries survive a
+/// power loss together with the file later renamed into them.
+pub(crate) fn mkdir_p(path: &Path, sync: bool) -> Result<()> {
+    let created = |path: &Path| {
+        if sync {
+            fsync_directory(&path_parent(path))
+        } else {
+            Ok(())
+        }
+    };
     match fs::create_dir(path) {
-        Ok(()) => Ok(()),
+        Ok(()) => created(path),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             let parent = path_parent(path);
             if parent == path {
                 return Err(Error::io(e, Some(path), None));
             }
-            mkdir_p(&parent)?;
+            mkdir_p(&parent, sync)?;
             match fs::create_dir(path) {
-                Ok(()) => Ok(()),
-                Err(e) if path.is_dir() => {
-                    let _ = e;
-                    Ok(())
-                }
+                Ok(()) => created(path),
+                Err(_) if path.is_dir() => Ok(()),
                 Err(e) => Err(Error::io(e, Some(path), None)),
             }
         }
-        Err(e) => {
-            if path.is_dir() {
-                Ok(())
-            } else {
-                Err(Error::io(e, Some(path), None))
-            }
-        }
+        Err(_) if path.is_dir() => Ok(()),
+        Err(e) => Err(Error::io(e, Some(path), None)),
     }
+}
+
+/// Whether a failed `open` in `dir` means the directory (or one of its
+/// ancestors) is missing or not a directory, so [`mkdir_p`] should run (and
+/// report the failure exactly as before, if it cannot fix it).
+pub(crate) fn dir_missing(err: &io::Error) -> bool {
+    matches!(err.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR))
 }
 
 const TMP_CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789_";
@@ -208,8 +220,16 @@ impl Drop for SignalDeferral {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Number of directory fsyncs on this thread (for tests).
+    pub(crate) static DIR_FSYNCS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// fsync a directory so a rename inside it is durable.
 pub(crate) fn fsync_directory(path: &Path) -> Result<()> {
+    #[cfg(test)]
+    DIR_FSYNCS.with(|n| n.set(n.get() + 1));
     let dir = File::open(path).map_err(|e| Error::io(e, Some(path), None))?;
     dir.sync_all().map_err(|e| Error::io(e, None, None))
 }

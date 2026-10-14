@@ -33,6 +33,10 @@ pub const FORMAT: &str = "atomic-json-store/1";
 /// `serde_json::from_str`'s.
 const SERDE_RECURSION_LIMIT: usize = 128;
 
+/// Longest sleep between two attempts to take a contended lock that has a
+/// timeout. (Without a timeout the wait blocks in the kernel instead.)
+const MAX_LOCK_POLL: Duration = Duration::from_millis(10);
+
 /// Schema version assigned to plain JSON files that have no envelope.
 pub const LEGACY_VERSION: u64 = 0;
 
@@ -325,6 +329,7 @@ impl StoreBuilder {
             on_corrupt: self.on_corrupt,
             file_mode: self.file_mode,
             lock_states: Mutex::new(HashMap::new()),
+            parsed: Mutex::new(None),
         })
     }
 }
@@ -374,6 +379,18 @@ pub struct Store {
     on_corrupt: CorruptPolicy,
     file_mode: Option<u32>,
     lock_states: Mutex<HashMap<ThreadId, LockState>>,
+    /// A parse of the file made by [`Store::probe`], reused by the next read
+    /// if the file still holds exactly the same bytes.
+    parsed: Mutex<Option<Parsed>>,
+}
+
+/// The bytes of the store file and the document parsed from them, as
+/// returned by [`Store::probe`]. Not part of the public API (it exists for the
+/// CLI, which lives in another crate).
+#[doc(hidden)]
+pub struct Parsed {
+    raw: Vec<u8>,
+    doc: Value,
 }
 
 impl std::fmt::Debug for Store {
@@ -439,12 +456,14 @@ thread_local! {
     /// Called once, inside the publish critical section, after the temporary
     /// file has been written and before it is renamed over the store.
     static BEFORE_NEXT_REPLACE: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) };
+    /// Called once, right after the temporary file has been created.
+    static AFTER_TEMP_CREATED: std::cell::Cell<Option<fn(&Path)>> = const { std::cell::Cell::new(None) };
 }
 
 fn valid_version(value: Option<&Value>) -> Option<u64> {
     match value {
         Some(Value::Number(n)) => {
-            let text = n.to_string();
+            let text = n.as_str();
             if text.bytes().all(|b| b.is_ascii_digit()) {
                 text.parse().ok()
             } else {
@@ -508,6 +527,14 @@ impl Store {
     /// replace the whole file atomically, so this always sees one complete
     /// generation.
     pub fn info(&self) -> Result<StoreInfo> {
+        self.probe().map(|(info, _)| info)
+    }
+
+    /// [`info`](Self::info), also handing back the parsed file so that a
+    /// store opened at the version found can [`reuse`](Self::reuse) it
+    /// instead of parsing the file a second time. Not part of the public API.
+    #[doc(hidden)]
+    pub fn probe(&self) -> Result<(StoreInfo, Option<Parsed>)> {
         let mut info = StoreInfo {
             path: self.path.clone(),
             exists: false,
@@ -518,25 +545,33 @@ impl Store {
         };
         let raw = match fs::read(&self.path) {
             Ok(raw) => raw,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(info),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok((info, None)),
             Err(e) => return Err(Error::io(e, Some(&self.path), None)),
         };
         info.exists = true;
         info.size_bytes = raw.len() as u64;
         let Ok(doc) = json::loads_bytes(&raw) else {
-            return Ok(info);
+            return Ok((info, None));
         };
         if !is_envelope(&doc) {
             info.schema_version = Some(LEGACY_VERSION);
-            return Ok(info);
+        } else {
+            info.format = Some(FORMAT.to_owned());
+            info.schema_version = valid_version(doc.get("schema_version"));
+            info.updated_at = doc
+                .get("updated_at")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
         }
-        info.format = Some(FORMAT.to_owned());
-        info.schema_version = valid_version(doc.get("schema_version"));
-        info.updated_at = doc
-            .get("updated_at")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        Ok(info)
+        Ok((info, Some(Parsed { raw, doc })))
+    }
+
+    /// Let the next read use `parsed` instead of parsing the file again, if
+    /// the file then still holds exactly the same bytes. Not part of the
+    /// public API.
+    #[doc(hidden)]
+    pub fn reuse(&self, parsed: Parsed) {
+        *self.parsed.lock().unwrap_or_else(|p| p.into_inner()) = Some(parsed);
     }
 
     /// Return the current document, migrating and persisting it if needed.
@@ -681,15 +716,25 @@ impl Store {
                 });
             }
         }
-        sys::mkdir_p(&path_parent(&self.lock_path))?;
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(&self.lock_path)
-            .map_err(|e| Error::io(e, Some(&self.lock_path), None))?;
+        let open = || {
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .mode(0o600)
+                .open(&self.lock_path)
+        };
+        // The directory almost always exists; create it only when it is
+        // missing instead of probing for it on every operation.
+        let file = match open() {
+            Err(e) if sys::dir_missing(&e) => {
+                sys::mkdir_p(&path_parent(&self.lock_path), self.fsync)?;
+                open()
+            }
+            other => other,
+        }
+        .map_err(|e| Error::io(e, Some(&self.lock_path), None))?;
         self.acquire(&file, exclusive)?;
         self.lock_states
             .lock()
@@ -717,10 +762,19 @@ impl Store {
                 // NaN, infinity and absurdly large timeouts never expire.
                 .unwrap_or(None)
         });
-        let has_deadline = deadline.is_some();
-        let mut delay = 0.002_f64;
-        while !sys::try_flock(file, exclusive).map_err(|e| Error::io(e, None, None))? {
-            if has_deadline && deadline.is_some_and(|d| Instant::now() >= d) {
+        let flock = |wait| sys::flock(file, exclusive, wait).map_err(|e| Error::io(e, None, None));
+        let Some(deadline) = deadline else {
+            // No deadline: block in the kernel, which wakes this waiter as
+            // soon as the lock is free instead of polling for it.
+            flock(true)?;
+            return Ok(());
+        };
+        // Poll with a short exponential backoff. The cap bounds how long a
+        // waiter can oversleep a release; a sleep never runs past the deadline.
+        let mut delay = Duration::from_millis(1);
+        while !flock(false)? {
+            let now = Instant::now();
+            if now >= deadline {
                 let kind = if exclusive { "exclusive" } else { "shared" };
                 return Err(Error::new(
                     ErrorKind::LockTimeout,
@@ -731,8 +785,8 @@ impl Store {
                     ),
                 ));
             }
-            thread::sleep(Duration::from_secs_f64(delay));
-            delay = (delay * 2.0).min(0.05);
+            thread::sleep(delay.min(deadline - now));
+            delay = (delay * 2).min(MAX_LOCK_POLL);
         }
         Ok(())
     }
@@ -758,14 +812,18 @@ impl Store {
     }
 
     fn read(&self, repair: bool) -> std::result::Result<Value, ReadError> {
+        let parsed = self.parsed.lock().unwrap_or_else(|p| p.into_inner()).take();
         let raw = match fs::read(&self.path) {
             Ok(raw) => raw,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(self.fresh()),
             Err(e) => return Err(Error::io(e, Some(&self.path), None).into()),
         };
-        let document = match json::loads_bytes(&raw) {
-            Ok(doc) => doc,
-            Err(e) => return self.corrupt(&format!("invalid JSON: {e}"), repair),
+        let document = match parsed {
+            Some(Parsed { raw: seen, doc }) if seen == raw => doc,
+            _ => match json::loads_bytes(&raw) {
+                Ok(doc) => doc,
+                Err(e) => return self.corrupt(&format!("invalid JSON: {e}"), repair),
+            },
         };
         let (version, data) = if is_envelope(&document) {
             let Value::Object(mut map) = document else {
@@ -872,7 +930,6 @@ impl Store {
         );
         text.push('\n');
         let parent = path_parent(&self.path);
-        sys::mkdir_p(&parent)?;
         let mode = match self.file_mode {
             Some(mode) => mode,
             None => match fs::metadata(&self.path) {
@@ -889,7 +946,19 @@ impl Store {
         // signals stay pending, so an interrupt never leaves temp debris or a
         // half-finished publish behind. They are delivered when this returns.
         let _deferral = sys::SignalDeferral::begin();
-        let (file, tmp) = sys::mkstemp(&parent, &prefix, ".tmp")?;
+        // `lock` has already created the directory; recreate it only if it
+        // has been removed since.
+        let (file, tmp) = match sys::mkstemp(&parent, &prefix, ".tmp") {
+            Err(e) if e.io_error().is_some_and(sys::dir_missing) => {
+                sys::mkdir_p(&parent, self.fsync)?;
+                sys::mkstemp(&parent, &prefix, ".tmp")?
+            }
+            other => other?,
+        };
+        #[cfg(test)]
+        if let Some(hook) = AFTER_TEMP_CREATED.with(|h| h.take()) {
+            hook(&tmp);
+        }
         let result = self.publish(file, &tmp, text.as_bytes(), mode);
         if let Err(e) = result {
             // Best effort: the temp file may already be gone.
@@ -903,6 +972,11 @@ impl Store {
     }
 
     fn publish(&self, mut file: File, tmp: &Path, text: &[u8], mode: u32) -> Result<()> {
+        // fchmod through the descriptor: a path-based chmod would follow a
+        // symlink planted at the temporary path by anyone else who can write
+        // to the directory. Doing it first also lets the fsync cover the mode.
+        file.set_permissions(Permissions::from_mode(mode))
+            .map_err(|e| Error::io(e, Some(tmp), None))?;
         file.write_all(text)
             .and_then(|()| file.flush())
             .map_err(|e| Error::io(e, None, None))?;
@@ -910,8 +984,6 @@ impl Store {
             file.sync_all().map_err(|e| Error::io(e, None, None))?;
         }
         drop(file);
-        fs::set_permissions(tmp, Permissions::from_mode(mode))
-            .map_err(|e| Error::io(e, Some(tmp), None))?;
         #[cfg(test)]
         if let Some(hook) = BEFORE_NEXT_REPLACE.with(|h| h.take()) {
             hook(tmp);
@@ -931,6 +1003,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sys::DIR_FSYNCS;
     use serde_json::json;
 
     fn tmp_store_path() -> (tempfile::TempDir, PathBuf) {
@@ -1039,6 +1112,91 @@ mod tests {
             .filter(|e| e.path().extension().is_some_and(|x| x == "tmp"))
             .collect();
         assert!(leftovers.is_empty());
+    }
+
+    thread_local! {
+        static VICTIM: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    }
+
+    /// Replace the freshly created temporary file with a symlink to the
+    /// victim, as another user with write access to the directory could.
+    fn swap_temp_for_symlink(tmp: &Path) {
+        let victim = VICTIM.with(|v| v.borrow().clone()).unwrap();
+        fs::remove_file(tmp).unwrap();
+        std::os::unix::fs::symlink(victim, tmp).unwrap();
+    }
+
+    #[test]
+    fn temp_file_mode_is_set_through_the_descriptor_not_the_path() {
+        let (dir, path) = tmp_store_path();
+        let victim = dir.path().join("victim");
+        fs::write(&victim, "secret").unwrap();
+        fs::set_permissions(&victim, Permissions::from_mode(0o600)).unwrap();
+        VICTIM.with(|v| *v.borrow_mut() = Some(victim.clone()));
+        let store = Store::builder(&path)
+            .file_mode(Some(0o644))
+            .build()
+            .unwrap();
+        AFTER_TEMP_CREATED.with(|h| h.set(Some(swap_temp_for_symlink)));
+        store.save(&json!({"v": 1})).unwrap();
+        let mode = fs::metadata(&victim).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "chmod followed a symlink planted at the temp path"
+        );
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "secret");
+    }
+
+    #[test]
+    fn new_parent_directories_are_made_durable() {
+        let (dir, _) = tmp_store_path();
+        let path = dir.path().join("a").join("b").join("state.json");
+        DIR_FSYNCS.with(|n| n.set(0));
+        Store::new(&path).unwrap().save(&json!({})).unwrap();
+        // The entries of `a` (in the temp dir) and `b` (in `a`) plus the
+        // renamed file (in `b`).
+        assert_eq!(DIR_FSYNCS.with(|n| n.get()), 3);
+        DIR_FSYNCS.with(|n| n.set(0));
+        Store::new(&path).unwrap().save(&json!({})).unwrap();
+        assert_eq!(DIR_FSYNCS.with(|n| n.get()), 1);
+        let unsynced = dir.path().join("c").join("state.json");
+        DIR_FSYNCS.with(|n| n.set(0));
+        let store = Store::builder(&unsynced).fsync(false).build().unwrap();
+        store.save(&json!({})).unwrap();
+        assert_eq!(DIR_FSYNCS.with(|n| n.get()), 0);
+    }
+
+    #[test]
+    fn a_probed_parse_is_reused_only_for_identical_bytes() {
+        let (_dir, path) = tmp_store_path();
+        let store = Store::new(&path).unwrap();
+        store.save(&json!({"real": true})).unwrap();
+        let (info, parsed) = store.probe().unwrap();
+        assert_eq!(info.schema_version, Some(1));
+        let raw = parsed.unwrap().raw;
+        // A stand-in parse proves which document the next read used.
+        let marked = || json!({"format": FORMAT, "schema_version": 1, "data": {"reused": true}});
+        store.reuse(Parsed {
+            raw: raw.clone(),
+            doc: marked(),
+        });
+        assert_eq!(store.load().unwrap(), json!({"reused": true}));
+        // Used once: the next read parses the file again.
+        assert_eq!(store.load().unwrap(), json!({"real": true}));
+        // The file changed after the probe: the stale parse is ignored.
+        store.reuse(Parsed { raw, doc: marked() });
+        Store::new(&path)
+            .unwrap()
+            .save(&json!({"newer": 1}))
+            .unwrap();
+        assert_eq!(store.load().unwrap(), json!({"newer": 1}));
+        // Writes go through the same read and see the latest file too.
+        store.reuse(Parsed {
+            raw: b"{}".to_vec(),
+            doc: marked(),
+        });
+        store.set("k", json!(2)).unwrap();
+        assert_eq!(store.load().unwrap(), json!({"newer": 1, "k": 2}));
     }
 
     #[test]

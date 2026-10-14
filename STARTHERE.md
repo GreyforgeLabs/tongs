@@ -66,7 +66,7 @@ tongs/
 
 ```bash
 cargo run --quiet -- --version
-# Expected output: tongs 2.0.0
+# Expected output: tongs 2.0.1
 cargo test --locked
 # Expected output: all tests pass
 ```

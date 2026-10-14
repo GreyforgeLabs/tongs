@@ -9,7 +9,7 @@ use std::os::unix::ffi::OsStringExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tongs::json::{self, DumpOptions, JsonError};
-use tongs::{Error, ErrorKind, LEGACY_VERSION, Map, Store, Value, python};
+use tongs::{Error, ErrorKind, Map, Store, Value, python};
 
 use argparse::{Action, Exit, Kind, Namespace, Parser, SubCommand, Type, Val};
 use keypath::{KeyPathError, delete_path, get_path, set_path};
@@ -295,10 +295,11 @@ fn store_at(file: &str, schema_version: u64, lock_timeout: f64) -> Result<Store,
         .build()
 }
 
-/// `_open`: adopt the schema version the file already carries.
+/// `_open`: adopt the schema version the file already carries. The parse made
+/// to find that version is handed to the returned store, so the file is
+/// parsed once rather than twice.
 fn open_store(file: &str, lock_timeout: f64, create_version: Option<u64>) -> Result<Store, Error> {
-    let probe = store_at(file, 1, lock_timeout)?;
-    let info = probe.info()?;
+    let (info, parsed) = store_at(file, 1, lock_timeout)?.probe()?;
     let version = if info.exists {
         info.schema_version.ok_or_else(|| {
             Error::new(
@@ -314,11 +315,19 @@ fn open_store(file: &str, lock_timeout: f64, create_version: Option<u64>) -> Res
             format!("{file} does not exist"),
         ));
     };
-    if version == LEGACY_VERSION && info.format.is_none() && info.exists {
-        // Adopt a plain JSON file at version 0 without forcing a migration.
-        return store_at(file, LEGACY_VERSION, lock_timeout);
+    // A plain JSON file is adopted at version 0 without forcing a migration.
+    let store = store_at(file, version, lock_timeout)?;
+    if let Some(parsed) = parsed {
+        store.reuse(parsed);
     }
-    store_at(file, version, lock_timeout)
+    Ok(store)
+}
+
+/// The process exits right after printing, so leave a loaded document to the
+/// OS instead of freeing it node by node (several milliseconds for a
+/// document of a few hundred kilobytes).
+fn exit_without_freeing(data: Value) {
+    std::mem::forget(data);
 }
 
 fn run(ns: &Namespace, io: &mut Io<'_>) -> Result<i32, CliError> {
@@ -358,6 +367,7 @@ fn run(ns: &Namespace, io: &mut Io<'_>) -> Result<i32, CliError> {
         "dump" => {
             let data = open_store(file, lock_timeout, None)?.load()?;
             io.emit(&data)?;
+            exit_without_freeing(data);
             Ok(EXIT_OK)
         }
         "get" => {
@@ -377,6 +387,7 @@ fn run(ns: &Namespace, io: &mut Io<'_>) -> Result<i32, CliError> {
                     }
                 },
             }
+            exit_without_freeing(data);
             Ok(EXIT_OK)
         }
         "set" => {

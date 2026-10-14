@@ -677,6 +677,33 @@ fn zero_timeout_fails_fast() {
 }
 
 #[test]
+fn no_timeout_waits_for_the_holder() {
+    let (_d, path) = store_path();
+    let store = Store::builder(&path).lock_timeout(None).build().unwrap();
+    store.save(&json!({"n": 0})).unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let holder_path = path.clone();
+    let holder = thread::spawn(move || {
+        let holder = Store::new(&holder_path).unwrap();
+        let guard = holder.lock(true).unwrap();
+        entered_tx.send(()).unwrap();
+        thread::sleep(Duration::from_millis(150));
+        holder.save(&json!({"n": 1})).unwrap();
+        drop(guard);
+    });
+    entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let started = Instant::now();
+    let doc = store
+        .update(|d: &mut Value| d["n"] = json!(d["n"].as_i64().unwrap() + 1))
+        .unwrap();
+    assert!(started.elapsed() >= Duration::from_millis(100));
+    holder.join().unwrap();
+    // The waiter ran after the holder's write, so no update was lost.
+    assert_eq!(doc, json!({"n": 2}));
+    assert_eq!(store.load().unwrap(), json!({"n": 2}));
+}
+
+#[test]
 fn threads_never_lose_increments() {
     let (_d, path) = store_path();
     let store = Arc::new(

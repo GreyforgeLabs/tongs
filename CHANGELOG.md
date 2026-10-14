@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - Unreleased
+
+### Fixed
+
+- The file mode of a new generation is now set through the open temporary file (`fchmod`) before its contents are written and synced, instead of by path after closing it. A path-based `chmod` followed a symlink planted at the temporary path by another user with write access to the directory; the mode is now also covered by the file's fsync.
+- Directories the store creates for a new file (the store's parent and any missing ancestors) are now made durable too: with `fsync(true)` the parent of every created directory is fsynced, so after a power loss the new directory entries survive together with the file renamed into them.
+- A lock wait with no timeout (`lock_timeout(None)`) now blocks in the kernel (`flock` without `LOCK_NB`) and wakes as soon as the holder releases the lock, instead of polling.
+
+### Performance
+
+- The CLI parses the store file once instead of twice: `dump`, `get`, `set` and `delete` reuse the parse made to find the file's schema version whenever the file still holds exactly the same bytes when it is read under the lock. On a 1.6 MB store: `get` 45 ms -> 24 ms, `dump` 52 ms -> 30 ms, `set` (with fsync) 63-76 ms -> 42 ms.
+- Lock hand-off is faster: a waiter with no timeout gets a released lock in about 0.05 ms (median; was 18.9 ms), and a waiter with a timeout polls with a 10 ms cap instead of 50 ms (median hand-off 5.9 ms, was 17.9 ms).
+- Valid UTF-8 input is parsed in place without a copy, string runs that need no escaping are copied in one step, objects are serialised in insertion order without collecting their entries, and floats and numbers are written without temporary strings (a document that serialises to 1.6 MB with `indent=2`: 5.1-6.0 ms -> 3.8-4.1 ms, medians of 21 runs).
+- The lock file's directory is created only when opening the lock file reports it missing, instead of being probed on every operation.
+
 ## [2.0.0] - 2026-10-05
 
 ### Changed

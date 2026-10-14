@@ -17,11 +17,18 @@ use std::path::{Path, PathBuf};
 /// when the decimal exponent is below -4 or above 16, as CPython does.
 /// Non-finite values render as `nan`, `inf` and `-inf`.
 pub fn float_repr(x: f64) -> String {
+    let mut out = String::with_capacity(24);
+    push_float_repr(&mut out, x);
+    out
+}
+
+/// [`float_repr`] appended to `out` (no allocation).
+pub(crate) fn push_float_repr(out: &mut String, x: f64) {
     if x.is_nan() {
-        return "nan".to_owned();
+        return out.push_str("nan");
     }
     if x.is_infinite() {
-        return if x > 0.0 { "inf" } else { "-inf" }.to_owned();
+        return out.push_str(if x > 0.0 { "inf" } else { "-inf" });
     }
     // zmij (Ryu-style) yields the shortest round-tripping digits and breaks
     // ties to even, exactly like CPython's dtoa; Rust's `{:e}` rounds ties up
@@ -31,16 +38,26 @@ pub fn float_repr(x: f64) -> String {
     let (mantissa, exp) = text.split_once(['e', 'E']).unwrap_or((text, "0"));
     let exp: i32 = exp.parse().unwrap_or(0);
     let int_len = mantissa.find('.').unwrap_or(mantissa.len()) as i32;
-    let all: String = mantissa.chars().filter(char::is_ascii_digit).collect();
-    let trimmed_lead = all.trim_start_matches('0');
-    let lead_zeros = (all.len() - trimmed_lead.len()) as i32;
-    let mut digits = trimmed_lead.trim_end_matches('0').to_owned();
-    let mut decpt = int_len + exp - lead_zeros;
+    // The mantissa's digits (at most zmij's 24-byte buffer), without leading
+    // and trailing zeros.
+    let mut all = [0u8; 24];
+    let mut len = 0;
+    for b in mantissa.bytes().filter(u8::is_ascii_digit) {
+        all[len] = b;
+        len += 1;
+    }
+    let lead_zeros = all[..len].iter().take_while(|b| **b == b'0').count();
+    let mut digits = &all[lead_zeros..len];
+    while let [rest @ .., b'0'] = digits {
+        digits = rest;
+    }
+    let mut decpt = int_len + exp - lead_zeros as i32;
     if digits.is_empty() {
-        digits.push('0');
+        digits = b"0";
         decpt = 1;
     }
-    let mut out = String::with_capacity(digits.len() + 8);
+    // Only ASCII digits were copied, so this cannot fail.
+    let digits = std::str::from_utf8(digits).unwrap_or("0");
     if x.is_sign_negative() {
         out.push('-');
     }
@@ -57,17 +74,17 @@ pub fn float_repr(x: f64) -> String {
         if mag < 10 {
             out.push('0');
         }
-        out.push_str(&mag.to_string());
+        let _ = std::fmt::Write::write_fmt(out, format_args!("{mag}"));
     } else if decpt <= 0 {
         out.push_str("0.");
         for _ in 0..(-decpt) {
             out.push('0');
         }
-        out.push_str(&digits);
+        out.push_str(digits);
     } else {
         let decpt = decpt as usize;
         if decpt >= digits.len() {
-            out.push_str(&digits);
+            out.push_str(digits);
             for _ in 0..(decpt - digits.len()) {
                 out.push('0');
             }
@@ -78,7 +95,6 @@ pub fn float_repr(x: f64) -> String {
             out.push_str(&digits[decpt..]);
         }
     }
-    out
 }
 
 fn is_printable(c: char) -> bool {
