@@ -46,7 +46,7 @@ Use the library from another Cargo project:
 
 ```toml
 [dependencies]
-tongs = { git = "https://github.com/GreyforgeLabs/tongs", tag = "v2.0.1" }
+tongs = { git = "https://github.com/GreyforgeLabs/tongs", tag = "v2.0.2" }
 ```
 
 ## Features
