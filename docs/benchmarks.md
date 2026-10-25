@@ -2,7 +2,7 @@
 
 Python 1.0.1 is the package released as `atomic-json-store`; Rust 2.0.0 is tongs.
 
-Measured on 2026-10-05 on **greyarch** (Linux 7.2.5 x86_64, 12 cores, 16 GB RAM, btrfs on NVMe), with CPython 3.14.7 for 1.0.1 and rustc 1.98.1 for 2.0.0 (release profile: `opt-level = 3`, fat LTO, one codegen unit, stripped, `panic = "abort"`). Numbers are medians of 41 runs after 3 warm-up runs; the store is the two-key document created by `set service.name api` and `set service.port 8080 --json`, kept on the btrfs home volume so `set` pays a real fsync.
+Measured on 2026-10-05 on a desktop workstation (Linux 7.2.5 x86_64, 12 cores, 16 GB RAM, btrfs on NVMe), with CPython 3.14.7 for 1.0.1 and rustc 1.98.1 for 2.0.0 (release profile: `opt-level = 3`, fat LTO, one codegen unit, stripped, `panic = "abort"`). Numbers are medians of 41 runs after 3 warm-up runs; the store is the two-key document created by `set service.name api` and `set service.port 8080 --json`, kept on the btrfs home volume so `set` pays a real fsync.
 
 ## Cold-start wall time
 
