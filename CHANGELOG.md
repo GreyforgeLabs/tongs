@@ -4,7 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [2.0.1] - Unreleased
+## [Unreleased]
+
+### Fixed
+
+- `tongs FILE init` checks whether the store exists again under the exclusive lock before creating it. It used to check without the lock, so a store that another process created between that check and the write was replaced by an empty document. Python 1.x has the same race. An existing store is still reported without taking the lock.
+
+### Changed
+
+- The deprecated `atomic-json-store` alias now says it "will be removed in a future release". 2.0.1 still shipped it, so the old note ("in the next release") was not true.
+
+## [2.0.1] - 2026-10-14
 
 ### Fixed
 
