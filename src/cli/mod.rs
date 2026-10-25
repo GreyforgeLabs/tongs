@@ -353,8 +353,14 @@ fn run(ns: &Namespace, io: &mut Io<'_>) -> Result<i32, CliError> {
                 )
             })?;
             let store = store_at(file, version, lock_timeout)?;
+            // Check again under the exclusive lock before creating the store:
+            // another process may create it after the unlocked check, and
+            // `save` would then replace its document with `{}`.
             if !store.exists() {
-                store.save(&Value::Object(Map::new()))?;
+                let _guard = store.lock(true)?;
+                if !store.exists() {
+                    store.save(&Value::Object(Map::new()))?;
+                }
             }
             io.emit(&info_json(&store.info()?)?)?;
             Ok(EXIT_OK)

@@ -684,3 +684,26 @@ fn interrupt_during_a_write_leaves_no_temp_file_and_no_torn_store() {
         assert!(hit, "never caught the CLI mid-write for signal {signal}");
     }
 }
+
+/// `init` checks for the store under the store lock. Checked without it, a
+/// store that another process created in between was replaced by `{}`.
+#[test]
+fn init_never_replaces_a_store_created_concurrently() {
+    let (_d, path) = store_path();
+    let store = Store::new(&path).unwrap();
+    let guard = store.lock(true).unwrap();
+    let child = std::process::Command::new(env!("CARGO_BIN_EXE_tongs"))
+        .args([p(&path), "init"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Let init find the store missing and reach the lock, then create the
+    // store as a concurrent writer would.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    store.save(&json!({"owner": "writer"})).unwrap();
+    drop(guard);
+    let out = child.wait_with_output().unwrap();
+    assert_eq!(out.status.code(), Some(EXIT_OK), "{out:?}");
+    assert_eq!(read_json(&path)["data"], json!({"owner": "writer"}));
+}
