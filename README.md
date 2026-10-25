@@ -40,7 +40,7 @@ Install the CLI from source:
 cargo install --locked --path .
 ```
 
-This installs `tongs` and, for one release, a deprecated `atomic-json-store` alias that prints a one-line note to stderr and then behaves exactly like `tongs`, so existing scripts keep working while you update them.
+This installs `tongs` and, for now, a deprecated `atomic-json-store` alias that prints a one-line note to stderr and then behaves exactly like `tongs`, so existing scripts keep working while you update them.
 
 Use the library from another Cargo project:
 
@@ -59,7 +59,7 @@ tongs = { git = "https://github.com/GreyforgeLabs/tongs", tag = "v2.0.1" }
 - **Private by default** - new files are created with mode `0600`; existing file modes are preserved.
 - **CLI included** - `tongs FILE get|set|delete|dump|info|init` for shell scripts, with dotted key paths.
 - **Interoperable with 1.x** - same envelope (still marked `"format": "atomic-json-store/1"`), same JSON formatting (byte-for-byte), same sidecar lock path and lock type as the Python implementation (`atomic-json-store` 1.x).
-- **Small** - a single ~565 KiB binary with no runtime dependencies; the library depends only on `serde`/`serde_json`, `libc` and `zmij`. Linux and macOS are tested in CI.
+- **Small** - a single ~570 KiB binary with no runtime dependencies; the library depends only on `serde`/`serde_json`, `libc` and `zmij`. Linux and macOS are tested in CI.
 
 ## Usage
 

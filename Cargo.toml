@@ -22,8 +22,8 @@ name = "tongs"
 path = "src/main.rs"
 
 # Deprecated alias for the former name. It prints a one-line deprecation note
-# to stderr and then behaves exactly like `tongs`. Remove in the release after
-# 2.0.0.
+# to stderr and then behaves exactly like `tongs`. To be removed in a future
+# release.
 [[bin]]
 name = "atomic-json-store"
 path = "src/bin/atomic-json-store.rs"

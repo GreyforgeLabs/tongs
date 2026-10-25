@@ -13,7 +13,7 @@ git clone https://github.com/GreyforgeLabs/tongs.git && cd tongs && ./scripts/se
 
 tongs (formerly atomic-json-store) provides atomic, cross-process locked, schema-versioned JSON persistence as a Rust library and CLI. One type (`tongs::Store`) writes documents through temp-file-plus-rename, serializes read-modify-write cycles with an advisory sidecar `flock`, and upgrades old files through registered migrations. Version 2.x is a Rust rewrite of the Python 1.x package, which was released as `atomic-json-store`; the file format (envelope marker `"atomic-json-store/1"`, which must not change), JSON formatting and lock protocol are unchanged, so Rust and Python processes can share a store. There is no Python package named tongs.
 
-The `atomic-json-store` binary (`src/bin/atomic-json-store.rs`) is a deprecated alias kept for one release: it prints a one-line note to stderr and then runs the same CLI.
+The `atomic-json-store` binary (`src/bin/atomic-json-store.rs`) is a deprecated alias that will be removed in a future release: it prints a one-line note to stderr and then runs the same CLI.
 
 `info()` reads a complete atomically published file without creating a directory or lock. CLI dotted key paths have no escape syntax; use the library API for keys containing a literal dot.
 
@@ -30,7 +30,7 @@ tongs/
     sys.rs              # flock and signal deferral (libc), mkdir -p, mkstemp, dir fsync, UTC time
     main.rs             # `tongs` binary entry point
     bin/
-      atomic-json-store.rs  # deprecated alias binary (one release)
+      atomic-json-store.rs  # deprecated alias binary
     cli/
       mod.rs            # get/set/delete/dump/info/init
       argparse.rs       # faithful argparse emulation (parsing, help, errors)

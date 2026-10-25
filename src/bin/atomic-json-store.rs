@@ -3,7 +3,7 @@
 //! The command was renamed from atomic-json-store to tongs in 2.0.0. This
 //! alias prints a one-line deprecation note to stderr and then behaves exactly
 //! like `tongs` (same arguments, output, files and exit codes). It will be
-//! removed in the next release.
+//! removed in a future release.
 
 use std::io::Write;
 
@@ -12,7 +12,7 @@ mod cli;
 
 /// The deprecation note printed to stderr before every invocation.
 const DEPRECATION_NOTE: &str =
-    "atomic-json-store: renamed to tongs; this alias will be removed in the next release";
+    "atomic-json-store: renamed to tongs; this alias will be removed in a future release";
 
 fn main() {
     // Never fail because stderr is closed or a broken pipe: the alias must

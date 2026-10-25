@@ -529,7 +529,7 @@ fn deeply_nested_files_are_refused_without_crashing() {
 // ── Rename to tongs (2.0.0) ────────────────────────────────────────────
 
 const ALIAS_NOTE: &str =
-    "atomic-json-store: renamed to tongs; this alias will be removed in the next release\n";
+    "atomic-json-store: renamed to tongs; this alias will be removed in a future release\n";
 
 fn run_bin<I, S>(bin: &str, args: I) -> (i32, String, String)
 where

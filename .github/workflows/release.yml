@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           NAME="tongs-${GITHUB_REF_NAME}-${{ matrix.target }}"
           mkdir -p "dist/$NAME"
-          # tongs plus the deprecated atomic-json-store alias (one release).
+          # tongs plus the deprecated atomic-json-store alias.
           cp target/release/tongs target/release/atomic-json-store README.md LICENSE CHANGELOG.md "dist/$NAME/"
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
           rm -rf "dist/$NAME"
