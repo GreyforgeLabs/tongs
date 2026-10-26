@@ -64,7 +64,7 @@ cargo install --locked --git https://github.com/GreyforgeLabs/tongs --tag v2.0.2
 tongs = { git = "https://github.com/GreyforgeLabs/tongs", tag = "v2.0.2" }
 ```
 
-Coming from `atomic-json-store`? Both the tarballs and `cargo install` include an `atomic-json-store` alias that prints a one-line note to stderr and then behaves exactly like `tongs`, so existing scripts keep working while you update them. The file format did not change; see [Python Users](#python-users).
+Coming from `atomic-json-store`? Both the tarballs and `cargo install` include an `atomic-json-store` alias that prints a one-line note to stderr and then behaves exactly like `tongs`, so existing scripts keep working while you update them. With a prebuilt tarball, install it next to `tongs` with `install -m 755 $PKG/atomic-json-store ~/.local/bin/` (Linux and macOS). The file format did not change; see [Python Users](#python-users).
 
 ## Features
 
