@@ -42,6 +42,12 @@ chore: update dependencies
 - Update documentation for user-facing changes
 - No secrets, credentials, or internal paths in your code
 
+## Releasing
+
+1. Update `version` in `Cargo.toml` and add the `CHANGELOG.md` entry.
+2. Push a `vX.Y.Z` tag that matches the crate version. The release workflow tests, builds the Linux x86_64 and macOS arm64 tarballs, writes a `.sha256` file for each, and publishes the GitHub release.
+3. Update the README Install section: `VER=`, `--tag`, the library `tag =`, and switch the checksum lines to the published `.sha256` files (`curl -fsSLO …/$PKG.tar.gz.sha256 && sha256sum -c $PKG.tar.gz.sha256`). Check that each snippet downloads and verifies.
+
 ## Reporting Issues
 
 Use the GitHub issue templates. For bugs, include steps to reproduce. For features, describe the problem you're solving.

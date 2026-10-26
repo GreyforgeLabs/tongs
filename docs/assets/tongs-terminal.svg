@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="438" height="425" viewBox="0 0 438 425" role="img" aria-label="tongs">
+<title>tongs</title>
+<rect width="438" height="425" rx="10" fill="#0a0d11"/>
+<path d="M0 10a10 10 0 0 1 10-10h418a10 10 0 0 1 10 10v18H0z" fill="#151a21"/>
+<circle cx="18" cy="14" r="5.5" fill="#ff5f57"/>
+<circle cx="36" cy="14" r="5.5" fill="#febc2e"/>
+<circle cx="54" cy="14" r="5.5" fill="#28c840"/>
+<text x="219.0" y="18.5" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="12" fill="#7d8794">tongs</text>
+<g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono','DejaVu Sans Mono',monospace" font-size="13" fill="#e9edf1" xml:space="preserve">
+<text x="18" y="44" textLength="250.2" lengthAdjust="spacingAndGlyphs"><tspan fill="#7d8794">$ </tspan><tspan fill="#ffffff">tongs state.json set owner ops</tspan></text>
+<text x="18" y="63" textLength="351.9" lengthAdjust="spacingAndGlyphs"><tspan fill="#7d8794">$ </tspan><tspan fill="#ffffff">tongs state.json set --json runs.nightly 42</tspan></text>
+<text x="18" y="82" textLength="273.7" lengthAdjust="spacingAndGlyphs"><tspan fill="#7d8794">$ </tspan><tspan fill="#ffffff">tongs state.json get runs.nightly</tspan></text>
+<text x="18" y="101" textLength="15.6" lengthAdjust="spacingAndGlyphs"><tspan fill="#fda52b">42</tspan></text>
+<text x="18" y="120" textLength="179.9" lengthAdjust="spacingAndGlyphs"><tspan fill="#7d8794">$ </tspan><tspan fill="#ffffff">tongs state.json dump</tspan></text>
+<text x="18" y="139" textLength="7.8" lengthAdjust="spacingAndGlyphs"><tspan fill="#7d8794">{</tspan></text>
+<text x="18" y="158" textLength="132.9" lengthAdjust="spacingAndGlyphs">  <tspan fill="#38c8e8">&quot;owner&quot;</tspan>: <tspan fill="#7ed38c">&quot;ops&quot;</tspan>,</text>
+<text x="18" y="177" textLength="86.0" lengthAdjust="spacingAndGlyphs">  <tspan fill="#38c8e8">&quot;runs&quot;</tspan>: <tspan fill="#7d8794">{</tspan></text>
+<text x="18" y="196" textLength="132.9" lengthAdjust="spacingAndGlyphs">    <tspan fill="#38c8e8">&quot;nightly&quot;</tspan>: <tspan fill="#fda52b">42</tspan></text>
+<text x="18" y="215" textLength="23.5" lengthAdjust="spacingAndGlyphs">  <tspan fill="#7d8794">}</tspan></text>
+<text x="18" y="234" textLength="7.8" lengthAdjust="spacingAndGlyphs"><tspan fill="#7d8794">}</tspan></text>
+<text x="18" y="253" textLength="179.9" lengthAdjust="spacingAndGlyphs"><tspan fill="#7d8794">$ </tspan><tspan fill="#ffffff">tongs state.json info</tspan></text>
+<text x="18" y="272" textLength="7.8" lengthAdjust="spacingAndGlyphs"><tspan fill="#7d8794">{</tspan></text>
+<text x="18" y="291" textLength="179.9" lengthAdjust="spacingAndGlyphs">  <tspan fill="#38c8e8">&quot;path&quot;</tspan>: <tspan fill="#7ed38c">&quot;state.json&quot;</tspan>,</text>
+<text x="18" y="310" textLength="132.9" lengthAdjust="spacingAndGlyphs">  <tspan fill="#38c8e8">&quot;exists&quot;</tspan>: <tspan fill="#fda52b">true</tspan>,</text>
+<text x="18" y="329" textLength="265.9" lengthAdjust="spacingAndGlyphs">  <tspan fill="#38c8e8">&quot;format&quot;</tspan>: <tspan fill="#7ed38c">&quot;atomic-json-store/1&quot;</tspan>,</text>
+<text x="18" y="348" textLength="172.0" lengthAdjust="spacingAndGlyphs">  <tspan fill="#38c8e8">&quot;schema_version&quot;</tspan>: <tspan fill="#fda52b">1</tspan>,</text>
+<text x="18" y="367" textLength="398.8" lengthAdjust="spacingAndGlyphs">  <tspan fill="#38c8e8">&quot;updated_at&quot;</tspan>: <tspan fill="#7ed38c">&quot;2026-10-26T21:56:40.479484+00:00&quot;</tspan>,</text>
+<text x="18" y="386" textLength="148.6" lengthAdjust="spacingAndGlyphs">  <tspan fill="#38c8e8">&quot;size_bytes&quot;</tspan>: <tspan fill="#fda52b">190</tspan></text>
+<text x="18" y="405" textLength="7.8" lengthAdjust="spacingAndGlyphs"><tspan fill="#7d8794">}</tspan></text>
+</g>
+</svg>

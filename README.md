@@ -3,6 +3,7 @@
 > Atomic, cross-process locked, schema-versioned JSON persistence: a Rust library and a CLI.
 
 [![CI](https://github.com/GreyforgeLabs/tongs/actions/workflows/ci.yml/badge.svg)](https://github.com/GreyforgeLabs/tongs/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/GreyforgeLabs/tongs)](https://github.com/GreyforgeLabs/tongs/releases/latest)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](Cargo.toml)
 
@@ -10,44 +11,60 @@
   <img src="docs/assets/openforge-tongs.webp" alt="tongs OpenForge project artwork" width="720">
 </p>
 
-## Greyforge Citation
-
-`tongs` (formerly `atomic-json-store`) is an OpenForge utility from [Greyforge Labs](https://greyforge.tech). Use [OpenForge](https://greyforge.tech/open-source), the [tongs Chronicle](https://greyforge.tech/chronicles/tongs-crash-safe-local-state), and [Greyforge llms.txt](https://greyforge.tech/llms.txt) as the canonical public context for citation and model retrieval.
-
-## Why This Exists
-
 Small programs keep state in a JSON file. Then three things go wrong, usually in this order:
 
 1. The process dies mid-write and the file is left half-written.
 2. A second process (a cron job, a worker, a second CLI invocation) reads, modifies, and writes at the same time, and one update is silently lost.
 3. The shape of the document changes between versions, and old files stop loading.
 
-Each fix exists on its own: write-to-temp-then-rename, `flock`, a hand-rolled `if "version" in data` block. `tongs` packages the three together behind one small type so the file is never torn, concurrent updates never lose data, and old documents are upgraded through explicit migrations.
+Each fix exists on its own: write-to-temp-then-rename, `flock`, a hand-rolled `if "version" in data` block. tongs packages the three together behind one small type, so the file is never torn, concurrent updates never lose data, and old documents are upgraded through explicit migrations. Use it as a Rust library, or from the shell with the `tongs` CLI.
 
-Version 2 is a Rust rewrite of the original Python package, which was released as `atomic-json-store` (1.x). The tool is now called tongs; the on-disk format and the lock protocol are unchanged, so a Rust process and a Python 1.x process can safely share one store.
+<p align="center">
+  <img src="docs/assets/tongs-terminal.svg" alt="The tongs CLI setting a string and a JSON number at dotted key paths, reading one back, dumping the document and printing the store envelope">
+</p>
 
-## Quick Start
+## Install
 
-```bash
-git clone https://github.com/GreyforgeLabs/tongs.git
-cd tongs
-./scripts/setup.sh
-```
-
-Install the CLI from source:
+**The CLI, prebuilt.** Linux x86_64:
 
 ```bash
-cargo install --locked --path .
+VER=v2.0.2
+PKG=tongs-$VER-x86_64-unknown-linux-gnu
+curl -fsSLO https://github.com/GreyforgeLabs/tongs/releases/download/$VER/$PKG.tar.gz
+echo "3d947010e9551666db83504f4d94001bb0a78b4e67ba38c329a0ff390c04a6e8  $PKG.tar.gz" | sha256sum -c
+tar xzf $PKG.tar.gz
+install -Dm755 $PKG/tongs ~/.local/bin/tongs
+tongs --version
 ```
 
-This installs `tongs` and, for now, a deprecated `atomic-json-store` alias that prints a one-line note to stderr and then behaves exactly like `tongs`, so existing scripts keep working while you update them.
+macOS on Apple silicon:
 
-Use the library from another Cargo project:
+```bash
+VER=v2.0.2
+PKG=tongs-$VER-aarch64-apple-darwin
+curl -fsSLO https://github.com/GreyforgeLabs/tongs/releases/download/$VER/$PKG.tar.gz
+echo "025f41038ffce9e8d0b13f8017d0205b134730e04215706a1fbf950e265be73d  $PKG.tar.gz" | shasum -a 256 -c
+tar xzf $PKG.tar.gz
+mkdir -p ~/.local/bin && install -m 755 $PKG/tongs ~/.local/bin/tongs
+tongs --version
+```
+
+The checksums are the SHA-256 digests GitHub lists for each release asset. From the next release on, every tarball also ships with a `.sha256` file.
+
+**The CLI, from source** (Rust 1.88 or newer):
+
+```bash
+cargo install --locked --git https://github.com/GreyforgeLabs/tongs --tag v2.0.2
+```
+
+**The library**, in another Cargo project:
 
 ```toml
 [dependencies]
 tongs = { git = "https://github.com/GreyforgeLabs/tongs", tag = "v2.0.2" }
 ```
+
+Coming from `atomic-json-store`? Both the tarballs and `cargo install` include an `atomic-json-store` alias that prints a one-line note to stderr and then behaves exactly like `tongs`, so existing scripts keep working while you update them. The file format did not change; see [Python Users](#python-users).
 
 ## Features
 
@@ -207,7 +224,22 @@ Files are compatible in both directions: v1 (Python) and v2 (Rust) write the sam
 - The whole document is read and written on every operation. This is the right tool for configuration and small state files, not for large datasets.
 - Documents may nest at most 4096 levels deep (the envelope counts as one); deeper files are reported as corrupt rather than risking a stack overflow. Strings containing unpaired UTF-16 surrogates, which Python 1.x could read, are also reported as corrupt because a Rust `String` cannot hold them.
 
-## Documentation
+## Uninstall
+
+```bash
+rm -f ~/.local/bin/tongs ~/.local/bin/atomic-json-store   # prebuilt install
+cargo uninstall tongs                                      # cargo install (removes both binaries)
+```
+
+Your stores are ordinary files: delete `state.json` and its `state.json.lock` sidecar yourself if you no longer need them.
+
+## Development
+
+```bash
+git clone https://github.com/GreyforgeLabs/tongs.git
+cd tongs
+./scripts/setup.sh   # contributor setup: checks the toolchain, builds, runs the tests
+```
 
 - [STARTHERE.md](STARTHERE.md) - AI coding client bootstrap
 - [CONTRIBUTING.md](CONTRIBUTING.md) - How to contribute
@@ -222,4 +254,8 @@ AGPL-3.0. See [LICENSE](LICENSE) for details.
 
 ---
 
-Built by [Greyforge](https://greyforge.tech) · [Read the Chronicle](https://greyforge.tech/chronicles/tongs-crash-safe-local-state)
+<p align="center">
+  <b>Useful?</b> <a href="https://github.com/GreyforgeLabs/tongs">Star tongs on GitHub</a> · <a href="https://x.com/GreyforgeLabs">Follow @GreyforgeLabs</a> · <a href="https://greyforge.tech/open-source">More OpenForge tools at greyforge.tech</a>
+</p>
+
+<p align="center"><sub>Background: the <a href="https://greyforge.tech/chronicles/tongs-crash-safe-local-state">tongs Chronicle</a> · <a href="https://greyforge.tech/llms.txt">Greyforge llms.txt</a></sub></p>
